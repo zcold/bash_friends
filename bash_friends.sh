@@ -180,6 +180,16 @@ function define_log_variables {
         )
     fi
 
+    if is_empty bash_friends_log_colors; then
+        bash_friends_log_colors=(
+            "debug:orange"
+            "info:lightcyan"
+            "warning:yellow"
+            "critical:lightred"
+            "error:red"
+        )
+    fi
+
     if is_empty bash_friends_log_level; then
         bash_friends_log_level="info"
     fi
@@ -212,7 +222,8 @@ function get_log_value {
 
     local key
     local value
-    local current_log_value
+    local current_log_value=""
+
     for level_value in "${bash_friends_log_levels[@]}"; do
         key="${level_value%%:*}"
         value="${level_value##*:}"
@@ -229,11 +240,34 @@ function get_log_value {
     echo "${current_log_value}"
 }
 
+function get_log_color {
+    check_args 1 "$@"
+
+    local key
+    local value
+    local current_log_color=""
+
+    for level_value in "${bash_friends_log_colors[@]}"; do
+        key="${level_value%%:*}"
+        value="${level_value##*:}"
+        if [[ "${key}" == "$1" ]]; then
+            current_log_color="${value}"
+            break
+        fi
+    done
+
+    if [[ -z "${current_log_color}" ]]; then
+        return 1
+    fi
+
+    echo "${current_log_color}"
+}
 
 function log_ {
     local function_name # function (F) that calls logger
     local log_level  # log level, e.g. info, debug, error, etc.
     local log_level_value  # log level value, e.g. 10, 20, 30, etc.
+    local log_level_color  # log level color
     local log_function_prefix  # prefix for log function, e.g. log_info, log_debug, log_error, etc.
     local threshold_level
     local log_message
@@ -251,6 +285,7 @@ function log_ {
     if [[ ${function_name} == *"${log_function_prefix}"* ]]; then
         log_level=$(str_replace "${log_function_prefix}" "" "${function_name}")
         log_level_value="$(get_log_value "${log_level}")"
+        log_level_color="$(get_log_color "${log_level}")"
     else
         # echo to STDERR
         >&2 echo "${FUNCNAME[0]} is not called by function with prefix ${log_function_prefix} but by ${function_name}"
@@ -265,13 +300,78 @@ function log_ {
         return 0
     fi
 
-    local echo_cmd="echo ${bash_friends_log_format}"
+    local llc  # color for log level
+    case "${log_level_color,,}" in
+        "black")
+            llc='\033[0;30m'
+            ;;
+        "red")
+            llc='\033[0;31m'
+            ;;
+        "green")
+            llc='\033[0;32m'
+            ;;
+        "brown")
+            llc='\033[0;33m'
+            ;;
+        "orange")
+            llc='\033[0;33m'
+            ;;
+        "blue")
+            llc='\033[0;34m'
+            ;;
+        "purple")
+            llc='\033[0;35m'
+            ;;
+        "cyan")
+            llc='\033[0;36m'
+            ;;
+        "lightgray")
+            llc='\033[0;37m'
+            ;;
+        "darkgray")
+            llc='\033[1;30m'
+            ;;
+        "lightred")
+            llc='\033[1;31m'
+            ;;
+        "lightgreen")
+            llc='\033[1;32m'
+            ;;
+        "yellow")
+            llc='\033[1;33m'
+            ;;
+        "lightblue")
+            llc='\033[1;34m'
+            ;;
+        "lightpurple")
+            llc='\033[1;35m'
+            ;;
+        "lightcyan")
+            llc='\033[1;36m'
+            ;;
+        "white")
+            llc='\033[1;37m'
+            ;;
+        "nocolor")
+            llc='\033[0m'
+            ;;
+        *)
+            llc=""
+            ;;
+    esac
+
+    local nc='\033[0m'  # No Color
+    local msg
+    msg=$(eval "echo \"${bash_friends_log_format}\"")
 
     if [[ "${log_level,,}" == "error" ]]; then
-        echo_cmd=">&2 ${echo_cmd}"
+        >&2 echo -e "${llc}${msg}${nc}"
+    else
+        echo -e "${llc}${msg}${nc}"
     fi
 
-    eval "${echo_cmd}"
+
     unset caller_name
 }
 
@@ -350,97 +450,6 @@ function show_lines {
         echo "  ${line}"
     done
 }
-# help_msg="Show help message.
-#           Multiple lines are supported."
-
-# eval 'show_lines "${help_msg}"'
-
-# parse_args \
-#     "-h|--help > show_lines ${help_msg}" \
-#     "-d|--description > store_variable" \
-#     "-u|--usage > store_variable usage_var" \
-#     "-s|--strip > store_true do_strip_string" \
-#     --help description "-d|--description help message" \
-#     --help d "-d|--description help message" \
-
-function parse_args {
-    declare -A arguments
-    declare -A arg_aliases
-    local arg_action=()
-    # argument parsing errors
-    local errors=()
-    # local old_ifs=$IFS
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            -h|--help)
-                help_msg=$2
-                shift
-                shift
-                ;;
-            *)
-                # config arguments
-                # IFS is only effective in this line
-                IFS='>' read -r -a arg_action <<< "$1"
-                # echo "Found argument ${arg_action[*]} #${#arg_action[@]}"
-                if [[ ${#arg_action[@]} -ne 2 ]]; then
-                    errors+=("Unsupported option $1. Use > to separate option name and action")
-                    # echo "Found unsupported argument $1"
-                else
-                    arg_names=$(strip_string "${arg_action[0]}")
-                    IFS='|' read -r -a arg_names <<< "${arg_names}"
-                    for arg_name in "${arg_names[@]}"; do
-                        arguments[$arg_name]=$(strip_string "${arg_action[1]}")
-                        arg_aliases[$arg_name]=$(strip_string "${arg_names[*]}")
-                    done
-                    # for arg_name in "${!arguments[@]}"; do
-                    #     echo "$arg_name -=- ${arguments[${arg_name}]}";
-                    # done
-                    # for arg_name in "${!arg_aliases[@]}"; do
-                    #     echo "$arg_name === ${arg_aliases[${arg_name}]}";
-                    # done
-                    IFS='|'echo "${arg_names[*]}"
-                    # IFS=' ' read -r -a action <<< "$(strip_string "${arg_action[1]}")"
-                    # echo "Found keyword argument ${arg_names} and action ${action[*]}"
-                    # case "${action[0]}" in
-                    #     show_lines)
-                    #         var_name="${action[1]}"
-                    #         show_lines "${!var_name}"
-                    #         ;;
-                    #     *)
-                    #         ;;
-                    # esac
-
-                    # arg_names=( ${arg//\|/ } )
-                    # for arg in "${arg_names[@]}"; do
-                    #     echo "Found keyword argument ${arg} and action ${action}"
-                    # done
-
-                fi
-                shift
-                ;;
-        esac
-    done
-
-    # echo "${arguments["-h|--help"]}"
-    return 0
-    # if [[ ${#errors[@]} -gt 0 ]]; then
-    #     for error in "${errors[@]}"; do
-    #         log_error "${error}"
-    #     done
-    #     return 1
-    # fi
-}
-
-# parse_args \
-    # "-h|--help > show_msg:help_msg store_variable:is_help"
-    # "-d|--description > store_variable" \
-    # "-u|--usage > store_variable usage_var" \
-    # "-s|--strip > store_true do_strip_string" \
-    # "> store_variable position_var" \
-    # "> store_variable position_var2" \
-    # --help description "-d|--description help message" \
-    # --help d "-d|--description help message" \
-    # --help position_var "position_var help message" \
 
 function show_help_msg {
     local function
@@ -482,6 +491,10 @@ function show_help_msg {
                 ;;
         esac
     done
+
+    if [[ $show_msg -eq 0 ]]; then
+        return 0
+    fi
 
     if [[ ${#errors[@]} -gt 0 ]]; then
         for error in "${errors[@]}"; do
@@ -540,20 +553,21 @@ function remove_from_path {
 # shellcheck disable=SC2120
 function prepare_python_venv_pep518 {  # Create Python virtual environment from pyproject.toml
     if show_help_msg "$1" \
-        "prepare_python_venv_pep518 [pyproject_toml] [relative_path]"; then
+        -d "Create Python virtual environment" \
+        -u "prepare_python_venv_pep518 [pyproject_toml_path] [venv_path] [dependency_name]"; then
         return 0
     fi
 
     local pyproject_toml
     local code_root
     local python_interpreter
-    local venv_dir
-    local relative_path
+    local venv_path
     local dep_name
 
-
     pyproject_toml=${1:-"$(pwd)/pyproject.toml"}
-    relative_path=${2:-"venv"}
+    code_root="$(dirname "${pyproject_toml}")"
+
+    venv_path=${2:-"${code_root}/venv"}
     dep_name=${3:-""}
 
     if [[ ! -f "${pyproject_toml}" ]]; then
@@ -570,8 +584,6 @@ function prepare_python_venv_pep518 {  # Create Python virtual environment from 
 
     python_interpreter="python$(get_python_version_pep518 "${pyproject_toml}")" || return 1
 
-    code_root="$(dirname "${pyproject_toml}")"
-
     if ! python_interpreter=$(which "${python_interpreter}") &>/dev/null; then
         log_error "I cannot find ${python_interpreter}"
         return 1
@@ -584,18 +596,16 @@ function prepare_python_venv_pep518 {  # Create Python virtual environment from 
         return 1
     fi
 
-    venv_dir="${code_root}/${relative_path}"
-
     log_info "Remove existing virtual environment if any ... "
-    rm "${venv_dir}" -rf || return 1
+    rm "${venv_path}" -rf || return 1
     log_info "Done"
 
     log_info "Create virtual environment ... "
-    "${python_interpreter}" -m venv "${venv_dir}" || return 1
+    "${python_interpreter}" -m venv "${venv_path}" || return 1
     log_info "Done"
 
     log_info "Activating virtual environment to install dependencies ..."
-    if ! source "${venv_dir}/bin/activate"; then
+    if ! source "${venv_path}/bin/activate"; then
         log_error "Failed to activate virtual environment."
         return 1
     fi
@@ -613,7 +623,7 @@ function prepare_python_venv_pep518 {  # Create Python virtual environment from 
         log_info "Done"
     )
 
-    log_info "Run \`source ${venv_dir}/bin/activate\` to activate the virtual environment"
+    log_info "Run \`source ${venv_path}/bin/activate\` to activate the virtual environment"
 }
 
 # endregion: python functions
